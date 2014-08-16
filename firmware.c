@@ -44,8 +44,8 @@
 /*
  * include chimaera custom libraries
  */
-#include <chimaera.h>
-#include <chimutil.h>
+#include <oscpod.h>
+#include <utility.h>
 #include <debug.h>
 #include <eeprom.h>
 #include <ptp.h>
@@ -56,44 +56,91 @@
 #include <mdns-sd.h>
 #include <dhcpc.h>
 #include <arp.h>
-#include <engines.h>
 #include <wiz.h>
-#include <calibration.h>
-#include <sensors.h>
 #include <osc.h>
 
 static uint8_t adc1_raw_sequence [ADC_DUAL_LENGTH]; // ^corresponding raw ADC channels
 static uint8_t adc2_raw_sequence [ADC_DUAL_LENGTH]; // ^corresponding raw ADC channels
 static uint8_t adc3_raw_sequence [ADC_SING_LENGTH];
 
-static int16_t adc12_raw[2][MUX_MAX*ADC_DUAL_LENGTH*2] __attribute__((aligned(4))); // the dma temporary data array.
-static int16_t adc3_raw[2][MUX_MAX*ADC_SING_LENGTH] __attribute__((aligned(4)));
+static int16_t adc12_raw[2][ADC_DUAL_LENGTH*2] __attribute__((aligned(4))); // the dma temporary data array.
+static int16_t adc3_raw[2][ADC_SING_LENGTH] __attribute__((aligned(4)));
 
-static int16_t adc_sum[SENSOR_N];
-static int16_t adc_rela[SENSOR_N];
-static int16_t adc_swap[SENSOR_N];
+static uint16_t adc_raw[SENSOR_N];
+static float adc_val0[SENSOR_N];
+static float adc_val1[SENSOR_N];
 
-#if REVISION == 3
-static uint8_t mux_sequence [MUX_LENGTH] = {PA15, PB3, PB4, PB5}; // digital out pins to switch MUX channels
-#elif REVISION == 4
-static uint8_t mux_sequence [MUX_LENGTH] = {PB8, PB9}; // MR and CP pins of 4-bit counter
-#endif
+typedef struct _ADC_Filter ADC_Filter;
+typedef struct _ADC_Norm ADC_Norm;
+typedef enum _ADC_State ADC_State;
 
-static uint8_t mux_order [MUX_MAX] = {0xf, 0x4, 0xb, 0x3, 0xd, 0x6, 0x9, 0x1, 0xe, 0x5, 0xa, 0x2, 0xc, 0x7, 0x8, 0x0};
-static uint8_t order12 [MUX_MAX*ADC_DUAL_LENGTH*2];
-static uint8_t order3 [MUX_MAX*ADC_SING_LENGTH];
+struct _ADC_Filter {
+	float Os;
+	float O0, O1;
+	float OO0, OO1;
+};
 
-#if( (ADC_DUAL_LENGTH > 0) && (ADC_SING_LENGTH > 0) )
-static volatile uint_fast8_t adc12_eos = 0;
-static volatile uint_fast8_t adc3_eos = 0;
-#endif
+/*
+	Bn = (B - Bmin) / (Bmax - Bmin)
+	m = 1 / (Bmax - Bmin)
+	Bn = (B - Bmin) * m
+*/
+struct _ADC_Norm {
+	float min;
+	float max;
+	float m;
+};
+
+#define FILT_STIFFNESS 16.f
+
+static ADC_Filter adc_filt[SENSOR_N] = {
+	[0] = { .Os = 1.f / FILT_STIFFNESS },
+	[1] = { .Os = 1.f / FILT_STIFFNESS },
+	[2] = { .Os = 1.f / FILT_STIFFNESS },
+	[3] = { .Os = 1.f / FILT_STIFFNESS },
+	[4] = { .Os = 1.f / FILT_STIFFNESS },
+	[5] = { .Os = 1.f / FILT_STIFFNESS },
+	[6] = { .Os = 1.f / FILT_STIFFNESS },
+	[7] = { .Os = 1.f / FILT_STIFFNESS },
+	[8] = { .Os = 1.f / FILT_STIFFNESS }
+};
+
+static ADC_Norm adc_norm[SENSOR_N] = {
+	[0] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
+	[1] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
+	[2] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
+	[3] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
+	[4] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
+	[5] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
+	[6] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
+	[7] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
+	[8] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff }
+};
+
+enum _ADC_State {
+	ADC_STATE_IDLE	= 0,
+	ADC_STATE_ON,
+	ADC_STATE_OFF,
+	ADC_STATE_SET
+};
+
+static ADC_State adc_state[SENSOR_N];
+
+static uint8_t order12 [ADC_DUAL_LENGTH*2];
+static uint8_t order3 [ADC_SING_LENGTH];
+
+static uint8_t adc1_sequence [ADC_DUAL_LENGTH] = {PA1, PA2, PA0, PA3}; // analog input pins read out by the ADC1
+static uint8_t adc2_sequence [ADC_DUAL_LENGTH] = {PA4, PA5, PA6, PA7}; // analog input pins read out by the ADC2
+static uint8_t adc3_sequence [ADC_SING_LENGTH] = {PB0}; // analog input pins read out by the ADC3
+static uint8_t adc_unused [ADC_UNUSED_LENGTH] = {PB1};
+static uint8_t adc_order [ADC_LENGTH] = { 8, 4, 7, 3, 6, 2, 5, 1, 0 };
+
 static volatile uint_fast8_t adc12_dma_done = 0;
 static volatile uint_fast8_t adc12_dma_err = 0;
 static volatile uint_fast8_t adc3_dma_done = 0;
 static volatile uint_fast8_t adc3_dma_err = 0;
 static volatile uint_fast8_t adc_time_up = 1;
 static volatile uint_fast8_t adc_raw_ptr = 1;
-static volatile uint_fast8_t mux_counter = MUX_MAX;
 static volatile uint_fast8_t sync_should_request = 1; // send first request at boot
 static volatile uint_fast8_t sntp_should_listen = 0;
 static volatile uint_fast8_t ptp_should_request = 0;
@@ -210,96 +257,6 @@ wiz_dhcpc_irq(uint8_t isr)
 	dhcpc_should_listen = isr;
 }
 
-static inline __always_inline void
-_counter_inc()
-{
-#if REVISION == 3
-	pin_write_bit(mux_sequence[0], mux_counter & 0b0001);
-	pin_write_bit(mux_sequence[1], mux_counter & 0b0010);
-	pin_write_bit(mux_sequence[2], mux_counter & 0b0100);
-	pin_write_bit(mux_sequence[3], mux_counter & 0b1000);
-#elif REVISION == 4
-	if(mux_counter == 0)
-	{
-		// reset counter
-		pin_write_bit(mux_sequence[0], 0); // MR
-		pin_write_bit(mux_sequence[1], 1); // CP
-		pin_write_bit(mux_sequence[0], 1); // MR
-		pin_write_bit(mux_sequence[1], 0); // CP
-	}
-	else
-	{
-		// trigger counter
-		pin_write_bit(mux_sequence[1], 1); // CP
-		pin_write_bit(mux_sequence[1], 0); // CP
-	}
-#endif
-}
-
-static inline __always_inline void
-_irq_adc_block()
-{
-#if(ADC_DUAL_LENGTH > 0)
-# if(ADC_SING_LENGTH > 0)
-	if(adc12_eos && adc3_eos)
-	{
-		_counter_inc();
-		if(mux_counter < MUX_MAX)
-		{
-			mux_counter++;
-
-			adc12_eos = 0;
-			adc3_eos = 0;
-			ADC1->regs->CR |= ADC_CR_ADSTART; // start master(ADC1) and slave(ADC2) conversion
-			ADC3->regs->CR |= ADC_CR_ADSTART;
-		}
-	}
-# else
-	_counter_inc();
-	if(mux_counter < MUX_MAX)
-	{
-		mux_counter++;
-
-		ADC1->regs->CR |= ADC_CR_ADSTART; // start master(ADC1) and slave(ADC2) conversion
-	}
-# endif
-#else
-	_counter_inc();
-	if(mux_counter < MUX_MAX)
-	{
-		mux_counter++;
-
-		ADC3->regs->CR |= ADC_CR_ADSTART;
-	}
-#endif
-}
-
-void __CCM_TEXT__
-__irq_adc1_2()
-//adc1_2_irq(adc_callback_data *data)
-{
-	ADC1->regs->ISR |= ADC_ISR_EOS;
-	//ADC1->regs->ISR |= data->irq_flags; // clear flags
-
-#if( (ADC_DUAL_LENGTH > 0) && (ADC_SING_LENGTH > 0) )
-	adc12_eos = 1;
-#endif
-	_irq_adc_block();
-}
-
-void __CCM_TEXT__
-__irq_adc3()
-//adc3_irq(adc_callback_data *data)
-{
-	ADC3->regs->ISR |= ADC_ISR_EOS;
-	//ADC3->regs->ISR |= data->irq_flags; // clear flags
-
-#if( (ADC_DUAL_LENGTH > 0) && (ADC_SING_LENGTH > 0) )
-	adc3_eos = 1;
-#endif
-	_irq_adc_block();
-}
-
 static void __CCM_TEXT__
 adc12_dma_irq()
 {
@@ -329,26 +286,14 @@ adc_dma_run()
 {
 	adc12_dma_done = 0;
 	adc3_dma_done = 0;
-	mux_counter = 0;
-#if( (ADC_DUAL_LENGTH > 0) && (ADC_SING_LENGTH > 0) )
-	adc12_eos = 1;
-	adc3_eos = 1;
-#endif
-	_irq_adc_block();
+	ADC1->regs->CR |= ADC_CR_ADSTART; // start master(ADC1) and slave(ADC2) conversion
+	ADC3->regs->CR |= ADC_CR_ADSTART;
 }
 
 static inline __always_inline void
 adc_dma_block()
 { 
-#if(ADC_DUAL_LENGTH  > 0)
-#	if(ADC_SING_LENGTH > 0)
 	while( !adc12_dma_done || !adc3_dma_done ) // wait for all 3 ADCs to end
-#	else // ADC_SING_LENGTH == 0
-	while( !adc12_dma_done ) // wait for ADC12 to end
-#	endif
-#else // ADC_DUAL_LENGTH == 0
-	while( !adc3_dma_done ) // wait for ADC3 to end
-#endif
 		;
 	adc_raw_ptr ^= 1;
 }
@@ -381,163 +326,155 @@ mdns_cb(uint8_t *ip, uint16_t port, uint8_t *buf, uint16_t len)
 	mdns_dispatch(buf, len);
 }
 
-// loops are explicitely unrolled which makes it fast but cumbersome to read
-static void __CCM_TEXT__
-adc_fill(uint_fast8_t raw_ptr)
+static osc_data_t *
+_out_dump_raw(osc_data_t *buf, int32_t frm, OSC_Timetag now, OSC_Timetag offset)
 {
 	uint_fast8_t i;
-	uint_fast8_t pos;
-	int16_t *raw12 = adc12_raw[raw_ptr];
-	int16_t *raw3 = adc3_raw[raw_ptr];
-	uint16_t *qui = range.qui;
-	uint32_t *rela_vec32 =(uint32_t *)adc_rela;
-	uint32_t *sum_vec32 =(uint32_t *)adc_sum;
-	uint32_t *qui_vec32 =(uint32_t *)range.qui;
-	uint32_t *swap_vec32 =(uint32_t *)adc_swap;
+	osc_data_t *bndl;
+	osc_data_t *itm;
+	osc_data_t *buf_ptr = buf;
+	
+	buf_ptr = osc_start_bundle(buf_ptr, offset, &bndl);
+		buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+			buf_ptr = osc_set_path(buf_ptr, "/dmp");
+			buf_ptr = osc_set_fmt(buf_ptr, "fffffffff");
+			for(i=0; i<SENSOR_N; i++)
+				buf_ptr = osc_set_float(buf_ptr, adc_filt[i].OO1);
+		buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+	buf_ptr = osc_end_bundle(buf_ptr, bndl);
 
-	uint32_t zero = 0UL;
-	uint_fast8_t dump_enabled = config.dump.enabled; // local copy
-	uint_fast8_t movingaverage_enabled = config.sensors.movingaverage_bitshift > 0; // local copy
-	uint_fast8_t bitshift = config.sensors.movingaverage_bitshift; // local copy
+	return buf_ptr;
+}
 
-#if(ADC_DUAL_LENGTH > 0)
-	for(i=0; i<MUX_MAX*ADC_DUAL_LENGTH*2; i++)
-	{
-		pos = order12[i];
-		adc_rela[pos] = raw12[i];
-	}
-#endif
+static osc_data_t *
+_out_dump_val(osc_data_t *buf, int32_t frm, OSC_Timetag now, OSC_Timetag offset)
+{
+	uint_fast8_t i;
+	osc_data_t *bndl;
+	osc_data_t *itm;
+	osc_data_t *buf_ptr = buf;
+	
+	buf_ptr = osc_start_bundle(buf_ptr, offset, &bndl);
+		buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+			buf_ptr = osc_set_path(buf_ptr, "/val");
+			buf_ptr = osc_set_fmt(buf_ptr, "fffffffff");
+			for(i=0; i<SENSOR_N; i++)
+				buf_ptr = osc_set_float(buf_ptr, adc_val1[i]);
+		buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+	buf_ptr = osc_end_bundle(buf_ptr, bndl);
 
-#if(ADC_SING_LENGTH > 0)
-	for(i=0; i<MUX_MAX*ADC_SING_LENGTH; i++)
-	{
-		pos = order3[i];
-		adc_rela[pos] = raw3[i];
-	}
-#endif
+	return buf_ptr;
+}
 
-	if(movingaverage_enabled)
-	{
-		switch(bitshift)
-		{
-			case 1: // 2^1 = 2 samples moving average
-				if(dump_enabled)
-					for(i=0; i<SENSOR_N/2; i++)
-					{
-						uint32_t rela32;
-						rela32 = __ssub16(rela_vec32[i], qui_vec32[i]); // rela -= qui
+static osc_data_t *
+_out_lossless(osc_data_t *buf, int32_t frm, OSC_Timetag now, OSC_Timetag offset)
+{
+	uint_fast8_t i;
+	osc_data_t *bndl;
+	osc_data_t *itm;
+	osc_data_t *buf_ptr = buf;
+	char fmt[SENSOR_N+1];
+	char *fmt_ptr = fmt;
+	
+	buf_ptr = osc_start_bundle(buf_ptr, offset, &bndl);
+		buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+			buf_ptr = osc_set_path(buf_ptr, "/frm");
+			buf_ptr = osc_set_fmt(buf_ptr, "it");
+			buf_ptr = osc_set_int32(buf_ptr, frm);
+			buf_ptr = osc_set_timetag(buf_ptr, now);
+		buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
-						sum_vec32[i] = __sadd16(sum_vec32[i], rela32); // sum += rela
-						rela32 = __shadd16(sum_vec32[i], zero); // rela = sum / 2
-						sum_vec32[i] = __ssub16(sum_vec32[i], rela32); // sum -= rela
-
-						rela_vec32[i] = rela32;
-						swap_vec32[i] = __rev16(rela32); // SIMD hton
-					}
-				else // !dump_enabled
-					for(i=0; i<SENSOR_N/2; i++)
-					{
-						uint32_t rela32;
-						rela32 = __ssub16(rela_vec32[i], qui_vec32[i]); // rela -= qui
-
-						sum_vec32[i] = __sadd16(sum_vec32[i], rela32); // sum += rela
-						rela32 = __shadd16(sum_vec32[i], zero); // rela = sum / 2
-						sum_vec32[i] = __ssub16(sum_vec32[i], rela32); // sum -= rela
-
-						rela_vec32[i] = rela32;
-					}
-				break;
-			case 2: // 2^2 = 4 samples moving average
-				if(dump_enabled)
-					for(i=0; i<SENSOR_N/2; i++)
-					{
-						uint32_t rela32;
-						rela32 = __ssub16(rela_vec32[i], qui_vec32[i]); // rela -= qui
-
-						sum_vec32[i] = __sadd16(sum_vec32[i], rela32); // sum += rela
-						rela32 = __shadd16(sum_vec32[i], zero); // rela = sum / 2
-						rela32 = __shadd16(rela32, zero); // rela = rela / 2
-						sum_vec32[i] = __ssub16(sum_vec32[i], rela32); // sum -= rela
-
-						rela_vec32[i] = rela32;
-						swap_vec32[i] = __rev16(rela32); // SIMD hton
-					}
-				else // !dump_enabled
-					for(i=0; i<SENSOR_N/2; i++)
-					{
-						uint32_t rela32;
-						rela32 = __ssub16(rela_vec32[i], qui_vec32[i]); // rela -= qui
-
-						sum_vec32[i] = __sadd16(sum_vec32[i], rela32); // sum += rela
-						rela32 = __shadd16(sum_vec32[i], zero); // rela = sum / 2
-						rela32 = __shadd16(rela32, zero); // rela = rela / 2
-						sum_vec32[i] = __ssub16(sum_vec32[i], rela32); // sum -= rela
-
-						rela_vec32[i] = rela32;
-					}
-				break;
-			case 3: // 2^3 = 8 samples moving average
-				if(dump_enabled)
-					for(i=0; i<SENSOR_N/2; i++)
-					{
-						uint32_t rela32;
-						rela32 = __ssub16(rela_vec32[i], qui_vec32[i]); // rela -= qui
-
-						sum_vec32[i] = __sadd16(sum_vec32[i], rela32); // sum += rela
-						rela32 = __shadd16(sum_vec32[i], zero); // rela = sum / 2
-						rela32 = __shadd16(rela32, zero); // rela = rela / 2
-						rela32 = __shadd16(rela32, zero); // rela = rela / 2
-						sum_vec32[i] = __ssub16(sum_vec32[i], rela32); // sum -= rela
-
-						rela_vec32[i] = rela32;
-						swap_vec32[i] = __rev16(rela32); // SIMD hton
-					}
-				else // !dump_enabled
-					for(i=0; i<SENSOR_N/2; i++)
-					{
-						uint32_t rela32;
-						rela32 = __ssub16(rela_vec32[i], qui_vec32[i]); // rela -= qui
-
-						sum_vec32[i] = __sadd16(sum_vec32[i], rela32); // sum += rela
-						rela32 = __shadd16(sum_vec32[i], zero); // rela = sum / 2
-						rela32 = __shadd16(rela32, zero); // rela = rela / 2
-						rela32 = __shadd16(rela32, zero); // rela = rela / 2
-						sum_vec32[i] = __ssub16(sum_vec32[i], rela32); // sum -= rela
-
-						rela_vec32[i] = rela32;
-					}
-				break;
-		}
-	}
-	else // !movingaverage_enabled
-	{
-		if(dump_enabled)
-			for(i=0; i<SENSOR_N/2; i++)
+		for(i=0; i<SENSOR_N; i++)
+			switch(adc_state[i])
 			{
-				rela_vec32[i] = __ssub16(rela_vec32[i], qui_vec32[i]); // SIMD sub
-				swap_vec32[i] = __rev16(rela_vec32[i]); // SIMD hton
+				case ADC_STATE_IDLE:
+				case ADC_STATE_OFF:
+					break;
+				case ADC_STATE_ON:
+				case ADC_STATE_SET:
+					buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+						buf_ptr = osc_set_path(buf_ptr, "/tok");
+						buf_ptr = osc_set_fmt(buf_ptr, "if");
+						buf_ptr = osc_set_int32(buf_ptr, i);
+						buf_ptr = osc_set_float(buf_ptr, adc_val1[i]);
+					buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+					*fmt_ptr++ = 'i';
+					break;
 			}
-		else // !dump_enabled
-			for(i=0; i<SENSOR_N/2; i++)
+		*fmt_ptr = '\0';
+
+		buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+			buf_ptr = osc_set_path(buf_ptr, "/alv");
+			buf_ptr = osc_set_fmt(buf_ptr, fmt);
+			for(i=0; i<SENSOR_N; i++)
+				switch(adc_state[i])
+				{
+					case ADC_STATE_IDLE:
+					case ADC_STATE_OFF:
+						break;
+					case ADC_STATE_ON:
+					case ADC_STATE_SET:
+						buf_ptr = osc_set_int32(buf_ptr, i);
+						break;
+				}
+		buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+	buf_ptr = osc_end_bundle(buf_ptr, bndl);
+
+	return buf_ptr;
+}
+
+static osc_data_t *
+_out_lossy(osc_data_t *buf, int32_t frm, OSC_Timetag now, OSC_Timetag offset)
+{
+	uint_fast8_t i;
+	osc_data_t *bndl;
+	osc_data_t *itm;
+	osc_data_t *buf_ptr = buf;
+	
+	buf_ptr = osc_start_bundle(buf_ptr, offset, &bndl);
+		for(i=0; i<SENSOR_N; i++)
+			switch(adc_state[i])
 			{
-				rela_vec32[i] = __ssub16(rela_vec32[i], qui_vec32[i]); // SIMD sub
+				case ADC_STATE_IDLE:
+					break;
+				case ADC_STATE_OFF:
+					buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+						buf_ptr = osc_set_path(buf_ptr, "/off");
+						buf_ptr = osc_set_fmt(buf_ptr, "i");
+						buf_ptr = osc_set_int32(buf_ptr, i);
+					buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+					break;
+				case ADC_STATE_ON:
+					buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+						buf_ptr = osc_set_path(buf_ptr, "/on");
+						buf_ptr = osc_set_fmt(buf_ptr, "if");
+						buf_ptr = osc_set_int32(buf_ptr, i);
+						buf_ptr = osc_set_float(buf_ptr, adc_val1[i]);
+					buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+					break;
+				case ADC_STATE_SET:
+					buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+						buf_ptr = osc_set_path(buf_ptr, "/set");
+						buf_ptr = osc_set_fmt(buf_ptr, "if");
+						buf_ptr = osc_set_int32(buf_ptr, i);
+						buf_ptr = osc_set_float(buf_ptr, adc_val1[i]);
+					buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+					break;
 			}
-	}
+	buf_ptr = osc_end_bundle(buf_ptr, bndl);
+
+	return buf_ptr;
 }
 
 void
 loop()
 {
-	uint_fast8_t cmc_stat;
-	uint_fast8_t cmc_job = 0;
-	uint_fast16_t cmc_len = 0;
 	uint_fast16_t len = 0;
 
 	uint_fast8_t first = 1;
 	OSC_Timetag offset;
+	uint32_t frm = 1;
 
-//#define OSCTEST
-#ifdef OSCTEST
 	osc_data_t *bndl;
 	osc_data_t *itm;
 	osc_data_t *buf_ptr;
@@ -545,40 +482,11 @@ loop()
 	buf_ptr = BUF_O_OFFSET(!buf_o_ptr);
 	buf_ptr = osc_start_bundle(buf_ptr, OSC_IMMEDIATE, &bndl);
 		buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
-			buf_ptr = osc_set_path(buf_ptr, "/osc");
-			buf_ptr = osc_set_fmt(buf_ptr, "b");
-			buf_ptr = osc_set_blob(buf_ptr, 1024, adc12_raw);
+			buf_ptr = osc_set_path(buf_ptr, "/");
+			buf_ptr = osc_set_fmt(buf_ptr, "");
 		buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 	buf_ptr = osc_end_bundle(buf_ptr, bndl);
-	cmc_len = buf_ptr - BUF_O_OFFSET(!buf_o_ptr);
-
-	while(1)
-	{
-		osc_send_nonblocking(&config.output.osc, BUF_O_BASE(!buf_o_ptr), cmc_len);
-
-		buf_ptr = BUF_O_OFFSET(buf_o_ptr);
-		buf_ptr = osc_start_bundle(buf_ptr, OSC_IMMEDIATE, &bndl);
-			buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
-				buf_ptr = osc_set_path(buf_ptr, "/osc");
-				buf_ptr = osc_set_fmt(buf_ptr, "b");
-				buf_ptr = osc_set_blob(buf_ptr, 1024, adc12_raw);
-			buf_ptr = osc_end_bundle_item(buf_ptr, itm);
-		buf_ptr = osc_end_bundle(buf_ptr, bndl);
-		cmc_len = buf_ptr - BUF_O_OFFSET(buf_o_ptr);
-
-		osc_send_block(&config.output.osc);
-		buf_o_ptr ^= 1;
-	}
-#endif
-
-//#define BENCHMARK
-#ifdef BENCHMARK
-	Stop_Watch sw_adc_fill = {.id = "adc_fill", .thresh=2000};
-	Stop_Watch sw_output_send = {.id = "output_send", .thresh=2000};
-	Stop_Watch sw_tuio_process = {.id = "tuio_process", .thresh=2000};
-	Stop_Watch sw_output_serialize = {.id = "output_serialize", .thresh=2000};
-	Stop_Watch sw_output_block = {.id = "output_block", .thresh=2000};
-#endif // BENCHMARK
+	len = buf_ptr - BUF_O_OFFSET(!buf_o_ptr);
 
 	while(1) // endless loop
 	{
@@ -597,25 +505,50 @@ loop()
 			continue;
 		}
 
-		if(calibrating)
-			range_calibrate(adc12_raw[adc_raw_ptr], adc3_raw[adc_raw_ptr], order12, order3, adc_sum, adc_rela);
-
 		if(config.output.osc.socket.enabled && (wiz_socket_state[SOCK_OUTPUT] == WIZ_SOCKET_STATE_OPEN) )
 		{
-			uint_fast8_t job = 0;
+			osc_send_nonblocking(&config.output.osc, BUF_O_BASE(!buf_o_ptr), len);
 
-#ifdef BENCHMARK
-			stop_watch_start(&sw_output_send);
-#endif
-			if(config.output.parallel && cmc_job) // start nonblocking sending of last cycles output
-				cmc_stat = osc_send_nonblocking(&config.output.osc, BUF_O_BASE(!buf_o_ptr), cmc_len);
+			// fill adc_raw array	
+			uint_fast8_t i;
+			for(i=0; i<ADC_DUAL_LENGTH*2; i++)
+				adc_raw[order12[i]] = adc12_raw[adc_raw_ptr][i];
+			for(i=0; i<ADC_SING_LENGTH; i++)
+				adc_raw[order3[i]] = adc3_raw[adc_raw_ptr][i];
 
-		// fill adc_rela
-#ifdef BENCHMARK
-			stop_watch_start(&sw_adc_fill);
-#endif
-			adc_fill(adc_raw_ptr);
+			for(i=0; i<SENSOR_N; i++)
+			{
+				ADC_Filter *filt = &adc_filt[i];
+				ADC_Norm *norm = &adc_norm[i];
 
+				// filter signal
+				filt->O1 = adc_raw[i];
+				filt->OO1 = filt->Os * (filt->O0 + filt->O1) / 2.f + filt->OO0 * (1.f - filt->Os);
+				filt->O0 = filt->O1;
+				filt->OO0 = filt->OO1;
+
+				// normalize
+				adc_val1[i] = (filt->OO1 - norm->min) * norm->m;
+
+				// update state
+				if(adc_val1[i] > 0.f)
+				{
+					if(adc_val0[i] > 0.f)
+						adc_state[i] = ADC_STATE_SET;
+					else
+						adc_state[i] = ADC_STATE_ON;
+				}
+				else // adc_val1[i] <= 0.f
+				{
+					if(adc_val0[i] > 0.f)
+						adc_state[i] = ADC_STATE_OFF;
+					else
+						adc_state[i] = ADC_STATE_IDLE;
+				}
+				adc_val0[i] = adc_val1[i];
+			}
+
+			// refresh timetag
 			if(config.sntp.socket.enabled)
 				sntp_timestamp_refresh(systick_uptime(), &now, &offset);
 			else if(config.ptp.event.enabled)
@@ -623,68 +556,33 @@ loop()
 			else // neither sNTP nor PTP active
 				sntp_timestamp_refresh(systick_uptime(), &now, &offset);
 
-			// initiate OSC bundle
-			osc_data_t *buf = BUF_O_OFFSET(buf_o_ptr);
-			osc_data_t *buf_ptr = buf;
-			osc_data_t *preamble;
-			osc_data_t *bndl;
-			if(config.output.osc.mode == OSC_MODE_TCP)
-				buf_ptr = osc_start_bundle_item(buf_ptr, &preamble);
-			if(cmc_engines_active + config.dump.enabled > 1)
-				buf_ptr = osc_start_bundle(buf_ptr, OSC_IMMEDIATE, &bndl); // node bundle
+			frm++;
 
-			if(config.dump.enabled) // dump output is functional even when calibrating
-				buf_ptr = dump_update(buf_ptr, now, offset, sizeof(adc_swap), adc_swap);
-		
-			if(!calibrating && cmc_engines_active) // output engines are disfunctional when calibrating
-			{
-#ifdef BENCHMARK
-				stop_watch_start(&sw_tuio_process);
-#endif
-				buf_ptr = cmc_process(now, offset, adc_rela, buf_ptr); // touch recognition of current cycle
-			}
-			
-			if(cmc_engines_active + config.dump.enabled > 1)
-				buf_ptr = osc_end_bundle(buf_ptr, bndl); // node bundle
-			if(config.output.osc.mode == OSC_MODE_TCP)
-				buf_ptr = osc_end_bundle_item(buf_ptr, preamble);
+			// construct OSC output
+			buf_ptr = BUF_O_OFFSET(buf_o_ptr);
+			buf_ptr = osc_start_bundle(buf_ptr, OSC_IMMEDIATE, &bndl);
 
-			cmc_len = buf_ptr - buf;
-			if(cmc_len > 0) // is there anything after OSC bundle header?
-			{
-				job = 1;
+				buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+					buf_ptr = _out_dump_raw(buf_ptr, frm, now, offset);
+				buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
-				if(config.output.osc.mode == OSC_MODE_SLIP)
-					cmc_len = slip_encode(buf, cmc_len);
-			}
-			else // cmc_len <= 16
-				job = 0;
+				buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+					buf_ptr = _out_dump_val(buf_ptr, frm, now, offset);
+				buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
-#ifdef BENCHMARK
-			stop_watch_start(&sw_output_block);
-#endif
-			if(config.output.parallel && cmc_job && cmc_stat) // block for end of sending of last cycles output
-				osc_send_block(&config.output.osc);
+				buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+					buf_ptr = _out_lossless(buf_ptr, frm, now, offset);
+				buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
-			if(job) // switch output buffer
-				buf_o_ptr ^= 1;
+				buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+					buf_ptr = _out_lossy(buf_ptr, frm, now, offset);
+				buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
-			cmc_job = job;
+			buf_ptr = osc_end_bundle(buf_ptr, bndl);
+			len = buf_ptr - BUF_O_OFFSET(buf_o_ptr);
 
-			// serial output processing
-			if(!config.output.parallel && cmc_job) // start blocking sending of this cycles output
-			{
-				osc_send(&config.output.osc, BUF_O_BASE(!buf_o_ptr), cmc_len);
-				cmc_job = 0;
-			}
-
-#ifdef BENCHMARK
-			stop_watch_stop(&sw_output_send);
-			stop_watch_stop(&sw_adc_fill);
-			stop_watch_stop(&sw_tuio_process);
-			stop_watch_stop(&sw_output_serialize);
-			stop_watch_stop(&sw_output_block);
-#endif
+			osc_send_block(&config.output.osc);
+			buf_o_ptr ^= 1;
 		}
 
 		// handle WIZnet IRQs XXX check manually if we should have missed an interrupt
@@ -948,7 +846,6 @@ void
 setup()
 {
 	uint_fast8_t i;
-	uint_fast8_t p;
 
 	// determine power vs factory reset
 	bkp_init();
@@ -988,16 +885,6 @@ setup()
 
 	pin_set_modef(CHIM_LED_PIN, GPIO_MODE_OUTPUT, GPIO_MODEF_TYPE_PP);
 	pin_write_bit(CHIM_LED_PIN, 0);
-
-	// setup pins to switch the muxes
-	for(i=0; i<MUX_LENGTH; i++)
-		pin_set_modef(mux_sequence[i], GPIO_MODE_OUTPUT, GPIO_MODEF_TYPE_PP);
-
-#if REVISION == 4
-	// initialize counter
-	pin_write_bit(mux_sequence[0], 1); // MR
-	pin_write_bit(mux_sequence[1], 0); // CP
-#endif
 
 	// setup analog input pins
 	for(i=0; i<ADC_DUAL_LENGTH; i++)
@@ -1059,9 +946,6 @@ setup()
 	// read MAC from MAC EEPROM or use custom one stored in config
 	if(!config.comm.custom_mac)
 		eeprom_bulk_read(eeprom_24AA025E48, 0xfa, config.comm.mac, 6);
-
-	// load calibrated sensor ranges from eeprom
-	range_load(0);
 
 	// init DMA, which is used for SPI and ADC
 	dma_init(DMA1);
@@ -1177,25 +1061,18 @@ setup()
 	for(i=0; i<ADC_SING_LENGTH; i++)
 		adc3_raw_sequence[i] = PIN_MAP[adc3_sequence[i]].adc_channel;
 
-	for(p=0; p<MUX_MAX; p++)
-		for(i=0; i<ADC_DUAL_LENGTH*2; i++)
-			order12[p*ADC_DUAL_LENGTH*2 + i] = mux_order[p] + adc_order[i]*MUX_MAX;
+	for(i=0; i<ADC_DUAL_LENGTH*2; i++)
+		order12[i] = adc_order[i];
 
-	for(p=0; p<MUX_MAX; p++)
-		for(i=0; i<ADC_SING_LENGTH; i++)
-			order3[p*ADC_SING_LENGTH + i] = mux_order[p] + adc_order[ADC_DUAL_LENGTH*2+i]*MUX_MAX;
+	for(i=0; i<ADC_SING_LENGTH; i++)
+		order3[i] = adc_order[ADC_DUAL_LENGTH*2+i];
 
 	// set up ADC DMA tubes
 	int status;
 
 	// set channels in register
-#if(ADC_DUAL_LENGTH > 0)
 	adc_set_conv_seq(ADC1, adc1_raw_sequence, ADC_DUAL_LENGTH);
 	adc_set_conv_seq(ADC2, adc2_raw_sequence, ADC_DUAL_LENGTH);
-
-	ADC1->regs->IER |= ADC_IER_EOS; // enable end-of-sequence interrupt
-	nvic_irq_enable(NVIC_ADC1_2);
-	//adc_attach_interrupt(ADC1, ADC_IER_EOS, adc1_2_irq, NULL);
 
 	ADC12_BASE->CCR |= ADC_MDMA_MODE_ENABLE_12_10_BIT; // enable ADC DMA in 12-bit dual mode
 	ADC12_BASE->CCR |= ADC_CCR_DMACFG; // enable ADC circular mode for use with DMA
@@ -1210,18 +1087,12 @@ setup()
 	ASSERT(status == DMA_TUBE_CFG_SUCCESS);
 
 	dma_set_priority(DMA1, DMA_CH1, DMA_PRIORITY_MEDIUM);    //Optional
-	dma_set_num_transfers(DMA1, DMA_CH1, ADC_DUAL_LENGTH*MUX_MAX*2);
+	dma_set_num_transfers(DMA1, DMA_CH1, ADC_DUAL_LENGTH*2);
 	dma_attach_interrupt(DMA1, DMA_CH1, adc12_dma_irq);
 	dma_enable(DMA1, DMA_CH1);                //CCR1 EN bit 0
 	nvic_irq_set_priority(NVIC_DMA_CH1, ADC_DMA_PRIORITY);
-#endif
 
-#if(ADC_SING_LENGTH > 0)
 	adc_set_conv_seq(ADC3, adc3_raw_sequence, ADC_SING_LENGTH);
-
-	ADC3->regs->IER |= ADC_IER_EOS; // enable end-of-sequence interrupt
-	nvic_irq_enable(NVIC_ADC3);
-	//adc_attach_interrupt(ADC3, ADC_IER_EOS, adc3_irq, NULL);
 
 	ADC3->regs->CFGR |= ADC_CFGR_DMAEN; // enable DMA request
 	ADC3->regs->CFGR |= ADC_CFGR_DMACFG, // enable ADC circular mode for use with DMA
@@ -1234,14 +1105,10 @@ setup()
 	ASSERT(status == DMA_TUBE_CFG_SUCCESS);
 
 	dma_set_priority(DMA2, DMA_CH5, DMA_PRIORITY_MEDIUM);
-	dma_set_num_transfers(DMA2, DMA_CH5, ADC_SING_LENGTH*MUX_MAX*2);
+	dma_set_num_transfers(DMA2, DMA_CH5, ADC_SING_LENGTH*2);
 	dma_attach_interrupt(DMA2, DMA_CH5, adc3_dma_irq);
 	dma_enable(DMA2, DMA_CH5);
 	nvic_irq_set_priority(NVIC_DMA_CH5, ADC_DMA_PRIORITY);
-#endif
-
-	// set up continuous music controller output engines
-	cmc_init();
 
 	pin_write_bit(CHIM_LED_PIN, 1);
 	//DEBUG("si", "config_size", sizeof(Config));

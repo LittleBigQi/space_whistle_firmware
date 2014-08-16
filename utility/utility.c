@@ -29,7 +29,7 @@
 #include <string.h>
 #include <math.h>
 
-#include <chimutil.h>
+#include <utility.h>
 #include <tube.h>
 #include <armfix.h>
 #include <dhcpc.h>

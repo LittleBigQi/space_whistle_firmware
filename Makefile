@@ -1,11 +1,8 @@
 # Note: LIB_MAPLE_HOME needs to be defined in your environment 
 
-# set number of sensors: 16, 32, 48, 64, 80, 96, 112, 128, 144, 160
-export SENSORS ?= 160
-
 # set firmware version
 export VERSION_MAJOR ?= 0
-export VERSION_MINOR ?= 4
+export VERSION_MINOR ?= 1
 export VERSION_PATCH ?= 0
 
 # set revision of board design: 3, 4
@@ -23,9 +20,9 @@ export USB_PRODUCT := 0xdf11
 RELEASE := 0x0001
 VERSION := $(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_PATCH)-$(REVISION)
 BIN := build/$(BOARD).bin
-DFU := build/chimaera_S$(SENSORS)-$(VERSION).dfu
+DFU := build/space_whistle-$(VERSION).dfu
 
-.PHONY: dfu reset update download release
+.PHONY: dfu reset update download
 .DEFAULT_GOAL := sketch
 
 all: sketch
@@ -43,7 +40,7 @@ $(DFU): $(BIN)
 		-f 0x0001 \
 		-v $(USB_VENDOR) \
 		-p $(USB_PRODUCT) \
-			-n 'Chimaera S'$(SENSORS)' '$(VERSION)'. Copyright (c) 2014 Hanspeter Portner (dev@open-music-kontrollers.ch). Released under zlib/libpng License. By Open Music Kontrollers (http://open-music-kontrollers.ch/chimaera/).' \
+			-n 'Space Whistle '$(VERSION)'. Copyright (c) 2014 Hanspeter Portner (dev@open-music-kontrollers.ch). Released under zlib/libpng License. By Open Music Kontrollers (http://hackaday.io/project/2011/).' \
 			-m 0x08000000 -i $< \
 			-a 0
 
@@ -56,6 +53,3 @@ update:	$(DFU) reset
 
 download:	$(BIN) reset
 	dfu-util -a 0 -d $(USB_VENDOR):$(USB_PRODUCT) -s 0x08000000:leave -D $<
-
-release:
-	./releasor

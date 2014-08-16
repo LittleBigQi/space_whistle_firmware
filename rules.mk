@@ -14,34 +14,21 @@ include $(MAKEDIR)/header.mk
 # the variable BUILDDIRS, like this. $(BUILD_PATH) is the directory
 # where compilation output (like object files) goes. The variable $(d)
 # gets expanded to the directory containing this rules.mk file.
-BUILDDIRS += $(BUILD_PATH)/$(d)/cmc
 BUILDDIRS += $(BUILD_PATH)/$(d)/wiz
 BUILDDIRS += $(BUILD_PATH)/$(d)/osc
 BUILDDIRS += $(BUILD_PATH)/$(d)/oscquery
-BUILDDIRS += $(BUILD_PATH)/$(d)/dump
 BUILDDIRS += $(BUILD_PATH)/$(d)/config
 BUILDDIRS += $(BUILD_PATH)/$(d)/sntp
 BUILDDIRS += $(BUILD_PATH)/$(d)/ptp
 BUILDDIRS += $(BUILD_PATH)/$(d)/tube
 BUILDDIRS += $(BUILD_PATH)/$(d)/eeprom
-BUILDDIRS += $(BUILD_PATH)/$(d)/chimutil
+BUILDDIRS += $(BUILD_PATH)/$(d)/utility
 BUILDDIRS += $(BUILD_PATH)/$(d)/debug
-BUILDDIRS += $(BUILD_PATH)/$(d)/chimaera
+BUILDDIRS += $(BUILD_PATH)/$(d)/oscpod
 BUILDDIRS += $(BUILD_PATH)/$(d)/ipv4ll
 BUILDDIRS += $(BUILD_PATH)/$(d)/mdns-sd
 BUILDDIRS += $(BUILD_PATH)/$(d)/dhcpc
 BUILDDIRS += $(BUILD_PATH)/$(d)/arp
-BUILDDIRS += $(BUILD_PATH)/$(d)/calibration
-BUILDDIRS += $(BUILD_PATH)/$(d)/linalg
-BUILDDIRS += $(BUILD_PATH)/$(d)/sensors
-
-BUILDDIRS += $(BUILD_PATH)/$(d)/tuio2
-BUILDDIRS += $(BUILD_PATH)/$(d)/tuio1
-BUILDDIRS += $(BUILD_PATH)/$(d)/oscmidi
-BUILDDIRS += $(BUILD_PATH)/$(d)/midi
-BUILDDIRS += $(BUILD_PATH)/$(d)/dummy
-BUILDDIRS += $(BUILD_PATH)/$(d)/custom
-BUILDDIRS += $(BUILD_PATH)/$(d)/scsynth
 
 ### Local flags: these control how the compiler gets called.
 
@@ -57,7 +44,6 @@ EXAMPLE_INCLUDE_DIR := $(d)/include
 CFLAGS_$(d) := $(WIRISH_INCLUDES) $(LIBMAPLE_INCLUDES)
 # We'll also want our local include directory
 CFLAGS_$(d) += -I$(EXAMPLE_INCLUDE_DIR)
-CFLAGS_$(d) += -I$(d)/engines
 
 # set WIZnet chip version based on board revision: 5200, 5500
 ifeq ($(REVISION), 3)
@@ -69,7 +55,6 @@ endif
 
 # custom preprocessor flags
 #CFLAGS_$(d) += -DBENCHMARK
-CFLAGS_$(d) += -DSENSOR_N=$(SENSORS)
 CFLAGS_$(d) += -DWIZ_CHIP=$(WIZ_CHIP)
 CFLAGS_$(d) += -DREVISION=$(REVISION)
 CFLAGS_$(d) += -DVERSION_MAJOR=$(VERSION_MAJOR)
@@ -94,8 +79,7 @@ ASFLAGS_$(d) :=
 ### Source files
 
 # cSRCS_$(d) are the C source files we want compiled.
-cSRCS_$(d) := cmc/cmc.c
-cSRCS_$(d) += wiz/wiz.c
+cSRCS_$(d) := wiz/wiz.c
 ifeq ($(WIZ_CHIP), 5200)
 cSRCS_$(d) += wiz/W5200.c
 endif
@@ -109,27 +93,14 @@ cSRCS_$(d) += sntp/sntp.c
 cSRCS_$(d) += ptp/ptp.c
 cSRCS_$(d) += tube/tube.c
 cSRCS_$(d) += eeprom/eeprom.c
-cSRCS_$(d) += chimutil/chimutil.c
+cSRCS_$(d) += utility/utility.c
 cSRCS_$(d) += debug/debug.c
-cSRCS_$(d) += chimaera/chimaera.c
+cSRCS_$(d) += oscpod/oscpod.c
 cSRCS_$(d) += mdns-sd/mdns-sd.c
 cSRCS_$(d) += ipv4ll/ipv4ll.c
 cSRCS_$(d) += dhcpc/dhcpc.c
 cSRCS_$(d) += arp/arp.c
-cSRCS_$(d) += calibration/calibration.c
-cSRCS_$(d) += linalg/linalg.c
-cSRCS_$(d) += sensors/sensors.c
 cSRCS_$(d) += firmware.c
-
-cSRCS_$(d) += dump/dump.c
-cSRCS_$(d) += oscmidi/oscmidi.c
-cSRCS_$(d) += midi/midi.c
-cSRCS_$(d) += dummy/dummy.c
-cSRCS_$(d) += scsynth/scsynth.c
-cSRCS_$(d) += tuio2/tuio2.c
-cSRCS_$(d) += tuio1/tuio1.c
-cSRCS_$(d) += custom/custom.c
-cSRCS_$(d) += custom/custom_rpn.c
 
 # cppSRCS_$(d) are the C++ sources we want compiled.  We have our own
 # main.cpp, and one additional file.
@@ -137,7 +108,7 @@ cSRCS_$(d) += custom/custom_rpn.c
 # We can't call our main file main.cpp, or libmaple's build system
 # will get confused and try to build it without our CXXFLAGS. So call
 # it something else. Annoying! Hopefully LeafLabs will fix it soon.
-cppSRCS_$(d) := chimaerish.cpp
+cppSRCS_$(d) := firmwareish.cpp
 
 # sSRCS_$(d) are the assembly sources. We don't have any.
 sSRCS_$(d) :=

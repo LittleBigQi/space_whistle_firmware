@@ -27,8 +27,8 @@
 
 #include "ptp_private.h"
 
-#include <chimaera.h>
-#include <chimutil.h>
+#include <oscpod.h>
+#include <utility.h>
 #include <config.h>
 #include <debug.h>
 #include <sntp.h>

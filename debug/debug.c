@@ -22,7 +22,7 @@
  */
 
 #include <debug.h>
-#include <chimaera.h>
+#include <oscpod.h>
 #include <config.h>
 
 void

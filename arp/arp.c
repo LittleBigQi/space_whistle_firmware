@@ -28,7 +28,7 @@
 
 #include <wiz.h>
 #include <config.h>
-#include <chimaera.h>
+#include <oscpod.h>
 #include <sntp.h>
 
 #include <libmaple/systick.h>

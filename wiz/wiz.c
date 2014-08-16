@@ -31,7 +31,7 @@
 
 #include <tube.h>
 #include <netdef.h>
-#include <chimaera.h>
+#include <oscpod.h>
 
 #include <libmaple/dma.h>
 #include <libmaple/spi.h>

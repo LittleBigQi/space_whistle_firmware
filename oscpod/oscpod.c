@@ -21,7 +21,7 @@
  *     distribution.
  */
 
-#include <chimaera.h>
+#include <oscpod.h>
 
 uint_fast8_t buf_o_ptr = 0;
 const uint_fast8_t buf_i_ptr = 0;

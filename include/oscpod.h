@@ -42,58 +42,15 @@ extern const stm32_pin_info PIN_MAP [];
 #define pin_write_bit(PIN, VAL)(gpio_write_bit(PIN_MAP[(PIN)].gpio_device, PIN_MAP[(PIN)].gpio_bit,(VAL)))
 #define pin_read_bit(PIN)(gpio_read_bit(PIN_MAP[(PIN)].gpio_device, PIN_MAP[(PIN)].gpio_bit))
 
-#define MUX_MAX 16
-
-#if SENSOR_N == 16
-#	define ADC_LENGTH 1 // the number of connected sensor units
-#	define ADC_DUAL_LENGTH 0 // the number of channels to be converted per ADC(1&2)
-#	define ADC_SING_LENGTH 1 // the number of channels to be converted per ADC(3)
-#elif SENSOR_N == 32
-#	define ADC_LENGTH 2
-#	define ADC_DUAL_LENGTH 1
-#	define ADC_SING_LENGTH 0
-#elif SENSOR_N == 48
-#	define ADC_LENGTH 3
-#	define ADC_DUAL_LENGTH 1
-#	define ADC_SING_LENGTH 1
-#elif SENSOR_N == 64
-#	define ADC_LENGTH 4
-#	define ADC_DUAL_LENGTH 2
-#	define ADC_SING_LENGTH 0
-#elif SENSOR_N == 80
-#	define ADC_LENGTH 5
-#	define ADC_DUAL_LENGTH 2
-#	define ADC_SING_LENGTH 1
-#elif SENSOR_N == 96
-#	define ADC_LENGTH 6
-#	define ADC_DUAL_LENGTH 3
-#	define ADC_SING_LENGTH 0
-#elif SENSOR_N == 112
-#	define ADC_LENGTH 7
-#	define ADC_DUAL_LENGTH 3
-#	define ADC_SING_LENGTH 1
-#elif SENSOR_N == 128
-#	define ADC_LENGTH 8
-#	define ADC_DUAL_LENGTH 4
-#	define ADC_SING_LENGTH 0
-#elif SENSOR_N == 144
-#	define ADC_LENGTH 9
-#	define ADC_DUAL_LENGTH 4
-#	define ADC_SING_LENGTH 1
-#elif SENSOR_N == 160
-#	define ADC_LENGTH 10
-#	define ADC_DUAL_LENGTH 4
-#	define ADC_SING_LENGTH 2
-#else
-#	error "invalid number of sensors given to Make(-DSENSOR_N)" SENSOR_N
-#endif
+#define SENSOR_N 9
+#define ADC_LENGTH 9
+#define ADC_DUAL_LENGTH 4
+#define ADC_SING_LENGTH 1
 
 #define ADC_UNUSED_LENGTH (10 - ADC_LENGTH)
 
 #define ADC_BITDEPTH 0xfff
 #define ADC_HALF_BITDEPTH 0x7ff
-
-#define BLOB_MAX 8
 
 #define CHIMAERA_BUFSIZE 0x500
 

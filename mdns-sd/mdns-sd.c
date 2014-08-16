@@ -23,8 +23,8 @@
 
 #include "mdns-sd_private.h"
 
-#include <chimaera.h>
-#include <chimutil.h>
+#include <oscpod.h>
+#include <utility.h>
 #include <wiz.h>
 #include <config.h>
 #include <sntp.h>

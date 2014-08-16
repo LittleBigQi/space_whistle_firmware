@@ -24,7 +24,7 @@
 #ifndef _SENSORS_H_
 #define _SENSORS_H_
 
-#include <chimaera.h>
+#include <oscpod.h>
 #include <oscquery.h>
 
 extern uint8_t adc1_sequence [ADC_DUAL_LENGTH]; // analog input pins read out by the ADC1

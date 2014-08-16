@@ -26,7 +26,7 @@
 
 #include <osc.h>
 
-#include <chimaera.h>
+#include <oscpod.h>
 #include <debug.h>
 
 // characters not allowed in OSC path string

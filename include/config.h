@@ -27,10 +27,7 @@
 #include <stdint.h>
 
 #include <cmc.h>
-#include <chimaera.h>
-
-#include <scsynth.h>
-#include <custom.h>
+#include <oscpod.h>
 
 #define SRC_PORT 0
 #define DST_PORT 1
@@ -102,41 +99,6 @@ struct _Config {
 		uint8_t subnet [4];
 	} comm;
 
-	struct _dump {
-		uint8_t enabled;
-	} dump;
-
-	struct _tuio2 {
-		uint8_t enabled;
-		uint8_t long_header;
-	} tuio2;
-
-	struct _tuio1 {
-		uint8_t enabled;
-		uint8_t custom_profile;
-	} tuio1;
-
-	struct _scsynth {
-		uint8_t enabled;
-	} scsynth;
-
-	struct _oscmidi {
-		uint8_t enabled;
-		uint8_t effect;
-		float offset;
-		float range;
-		float mul;
-	} oscmidi;
-
-	struct _dummy {
-		uint8_t enabled;
-	} dummy;
-
-	struct _custom {
-		uint8_t enabled;
-		Custom_Item items [CUSTOM_MAX_EXPR];
-	} custom;
-
 	struct _output {
 		OSC_Config osc;
 		OSC_Timetag offset;
@@ -182,12 +144,8 @@ struct _Config {
 
 	struct _sensors {
 		uint8_t movingaverage_bitshift;
-		uint8_t interpolation_mode;
 		uint16_t rate; // the maximal update rate the chimaera should run at
 	} sensors;
-
-	CMC_Group groups [GROUP_MAX];
-	SCSynth_Group scsynth_groups [GROUP_MAX];
 };
 
 extern Config config;

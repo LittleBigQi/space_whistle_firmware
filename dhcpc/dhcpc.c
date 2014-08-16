@@ -30,7 +30,7 @@
 #include <wiz.h>
 #include <config.h>
 #include <sntp.h>
-#include <chimutil.h>
+#include <utility.h>
 
 // global
 DHCPC dhcpc = {

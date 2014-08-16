@@ -26,7 +26,7 @@
 #include <libmaple/delay.h>
 
 #include <eeprom.h>
-#include <chimaera.h>
+#include <oscpod.h>
 #include <wiz.h>
 
 #define TIMEOUT 10 // ms

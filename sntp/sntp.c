@@ -27,8 +27,8 @@
 
 #include "sntp_private.h"
 
-#include <chimaera.h>
-#include <chimutil.h>
+#include <oscpod.h>
+#include <utility.h>
 #include <config.h>
 
 // globals

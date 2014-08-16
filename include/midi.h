@@ -26,7 +26,7 @@
 
 #include <stdint.h>
 
-#include <chimaera.h>
+#include <oscpod.h>
 
 enum _MIDI_COMMAND {
 	MIDI_STATUS_NOTE_OFF 							= 0x80,

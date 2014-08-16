@@ -25,22 +25,17 @@
 #include <stdio.h>
 #include <math.h>
 
-#include <chimaera.h>
+#include <oscpod.h>
 #include <config.h>
-#include <chimutil.h>
+#include <utility.h>
 #include <wiz.h>
 #include <eeprom.h>
-#include <cmc.h>
-#include <midi.h>
-#include <calibration.h>
 #include <sntp.h>
 #include <ptp.h>
-#include <engines.h>
 #include <ipv4ll.h>
 #include <dhcpc.h>
 #include <mdns-sd.h>
 #include <debug.h>
-#include <sensors.h>
 
 static char string_buf [64];
 const char *success_str = "/success";
@@ -70,58 +65,14 @@ Config config = {
 		.patch = VERSION_PATCH
 	},
 
-	.name = {'c', 'h', 'i', 'm', 'a', 'e', 'r', 'a', '\0'},
+	.name = {'s', 'p', 'a', 'c', 'e', '_', 'w', 'h', 'i', 's', 't', 'l', 'e', '\0'},
 
 	.comm = {
 		.custom_mac = 0,
 		.mac = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-		.ip = {192, 168, 1, 177},
+		.ip = {192, 168, 1, 188},
 		.gateway = {192, 168, 1, 0},
 		.subnet = {255, 255, 255, 0},
-	},
-
-	.tuio2 = {
-		.enabled = 0,
-		.long_header = 0
-	},
-
-	.tuio1 = {
-		.enabled = 0,
-		.custom_profile = 0
-	},
-
-	.dump = {
-		.enabled = 0
-	},
-
-	.scsynth = {
-		.enabled = 0
-	},
-
-	.oscmidi = {
-		.enabled = 0,
-		.offset = MIDI_BOT,
-		.range = MIDI_RANGE,
-		.mul = 0x2000 / MIDI_RANGE,
-		.effect = MIDI_CONTROLLER_VOLUME
-	},
-
-	.dummy = {
-		.enabled = 0,
-	},
-
-	.custom = {
-		.enabled = 0,
-		/*
-		.items = {
-			[0] = {
-				.dest = RPN_NONE,
-				.path = {'\0'},
-				.fmt = {'\0'},
-				.vm = { .inst = { RPN_TERMINATOR } }
-			}
-		}
-		*/
 	},
 	
 	.output = {
@@ -221,51 +172,7 @@ Config config = {
 
 	.sensors = {
 		.movingaverage_bitshift = 3,
-		.interpolation_mode = INTERPOLATION_QUADRATIC,
 		.rate = 2000
-	},
-
-	// we only define attributes for two groups for factory settings
-	.groups = {
-		[0] = {
-			.x0 = 0.f,
-			.x1 = 1.f,
-			.m = 1.f,
-			.gid = 0,
-			.pid = CMC_SOUTH
-		},
-		[1] = {
-			.x0 = 0.f,
-			.x1 = 1.f,
-			.m = 1.f,
-			.gid = 1,
-			.pid = CMC_NORTH
-		}
-	},
-
-	.scsynth_groups = {
-		[0] = {
-			.name = {'g', 'r', 'o', 'u', 'p', '0', '\0'},
-			.sid = 1000,
-			.group = 0,
-			.out = 0, 
-			.arg = 0,
-			.alloc = 1,
-			.gate = 1,
-			.add_action = SCSYNTH_ADD_TO_HEAD,
-			.is_group = 0
-		},
-		[1] = {
-			.name = {'g', 'r', 'o', 'u', 'p', '1', '\0'},
-			.sid = 1000,
-			.group = 1,
-			.out = 1, 
-			.arg = 0,
-			.alloc = 1,
-			.gate = 1,
-			.add_action = SCSYNTH_ADD_TO_HEAD,
-			.is_group = 0
-		}
 	}
 };
 
@@ -696,15 +603,7 @@ _output_reset(const char *path, const char *fmt, uint_fast8_t argc, osc_data_t *
 
 	buf_ptr = osc_get_int32(buf_ptr, &uuid);
 
-	config.dump.enabled = 0;
-	config.tuio2.enabled = 0;
-	config.tuio1.enabled = 0;
-	config.scsynth.enabled = 0;
-	config.oscmidi.enabled = 0;
-	config.dummy.enabled = 0;
-	config.custom.enabled = 0;
-
-	cmc_engines_update();
+	//FIXME
 
 	size = CONFIG_SUCCESS("is", uuid, path);
 	CONFIG_SEND(size);
@@ -1202,23 +1101,13 @@ static const OSC_Query_Item engines_tree [] = {
 	OSC_QUERY_ITEM_METHOD("parallel", "Parallel processing", _output_parallel, config_boolean_args),
 	OSC_QUERY_ITEM_METHOD("reset", "Disable all engines", _output_reset, NULL),
 	OSC_QUERY_ITEM_METHOD("mode", "Enable/disable UDP/TCP mode", _output_mode, config_mode_args),
-	OSC_QUERY_ITEM_METHOD("server", "Enable/disable TCP server mode", _output_server, config_boolean_args),
-
-	// engines
-	OSC_QUERY_ITEM_NODE("dump/", "Dump output engine", dump_tree),
-	OSC_QUERY_ITEM_NODE("dummy/", "Dummy output engine", dummy_tree),
-	OSC_QUERY_ITEM_NODE("oscmidi/", "OSC MIDI output engine", oscmidi_tree),
-	OSC_QUERY_ITEM_NODE("scsynth/", "SuperCollider output engine", scsynth_tree),
-	OSC_QUERY_ITEM_NODE("tuio2/", "TUIO 2.0 output engine", tuio2_tree),
-	OSC_QUERY_ITEM_NODE("tuio1/", "TUIO 1.0 output engine", tuio1_tree),
-	OSC_QUERY_ITEM_NODE("custom/", "Custom output engine", custom_tree)
+	OSC_QUERY_ITEM_METHOD("server", "Enable/disable TCP server mode", _output_server, config_boolean_args)
 };
 
 static const OSC_Query_Item root_tree [] = {
 	OSC_QUERY_ITEM_NODE("info/", "Information", info_tree),
 	OSC_QUERY_ITEM_NODE("comm/", "Communitation", comm_tree),
 	OSC_QUERY_ITEM_NODE("reset/", "Reset", reset_tree),
-	OSC_QUERY_ITEM_NODE("calibration/", "Calibration", calibration_tree),
 
 	// sockets
 	OSC_QUERY_ITEM_NODE("config/", "Configuration", config_tree),
@@ -1230,8 +1119,7 @@ static const OSC_Query_Item root_tree [] = {
 	OSC_QUERY_ITEM_NODE("mdns/", "Multicast DNS", mdns_tree),
 
 	// output engines
-	OSC_QUERY_ITEM_NODE("engines/", "Output engines", engines_tree),
-	OSC_QUERY_ITEM_NODE("sensors/", "Sensor array", sensors_tree),
+	OSC_QUERY_ITEM_NODE("engines/", "Output engines", engines_tree)
 };
 
 static const OSC_Query_Item root = OSC_QUERY_ITEM_NODE("/", "Root node", root_tree);

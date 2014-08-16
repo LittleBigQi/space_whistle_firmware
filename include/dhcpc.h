@@ -24,7 +24,7 @@
 #ifndef _DHCPC_H_
 #define _DHCPC_H_
 
-#include <chimaera.h>
+#include <oscpod.h>
 
 typedef enum _DHCPC_State {
 	DISCOVER, OFFER, REQUEST, ACK, LEASE, TIMEOUT, CLAIMED, DECLINE
