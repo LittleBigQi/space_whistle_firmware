@@ -26,8 +26,8 @@
 
 #include <stdint.h>
 
-#include <cmc.h>
 #include <oscpod.h>
+#include <oscquery.h>
 
 #define SRC_PORT 0
 #define DST_PORT 1

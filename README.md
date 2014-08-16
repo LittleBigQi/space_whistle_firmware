@@ -1,20 +1,13 @@
-# Chimaera
+# Space Whistle - Wind Controller - Musical IoT
 
-## a polymagnetophonic theremin
+## A highly responsive wind controller with expressive continuous push buttons based on linear hall-effect sensors - A musical IoT device -
 
-The general idea was to develop an expressive music controller. The general characteristics that had to be fulfilled were:
+Wind controllers are fancy but expensive and their output signals have a too coarse resolution in time and their scope of application is too confined and they are not open, so we will build our own with some special twists. 
 
-- playable with fingers (those are the body parts that we have a very fine grained control on)
-- design should qualify for do-it-yourself production
-- entirely based on and released as open source hardware and software
-- adhere to the KISS principle (were our favorite wording is: *keep it simple and smart*
-- highly sensitive, e.g. has to react to subtle changes in input (a prerequisite for an expressive play with vibratos, tremolos, ...)
-- high update rates (2-5kHz)
-- driver-less communication and integration into any setup or operating system
-- possibility for network performances inherently included
+Instead of simple on/off buttons, we will use continuous push buttons (e-valves) instead with which we hope to be able to add a lot of expressiveness to our play. We will thus get a quasi continuous range of values per e-valve instead of a binary one. The e-valves will be based on linear hall-effect sensors and 8 of them with an accompanying respiratory air pressure sensor are interfaced to an ARM MCU. 
 
-The outcome was a device that is best described as a polyphonic theremin, based on magnetic distance sensing to permanent magnets atttached to fingers relative to an array of high accuracy linear hall effect sensors. An open source prototyping board with an ARM Cortex M4 MCU acts as the central computing unit, reading out the sensors, computing multi touch recognition and sending output via Ethernet.
+The device is fit for the future as all communication is network based. Events are serialized to Open Sound Control and sent via UDP/TCP to some host running a software synth. 
 
-The device therefore features two continuous dimensions. The X-dimension tells about the fingers position in the sensor array and most of the time will correspond to pitch. The P-dimension tells about finger proximity to the sensor array and may correspond to amplitude, filter cutoff frequency, modulation, etc.
+Finally the device could look like a networked electronic trumpet on stereoids and be the more most expressive wind controller out there, ready to record some fancy sci-fi movie themes.
 
-<http://open-music-kontrollers.ch/chimaera/about/>
+<http://hackaday.io/project/2011>
