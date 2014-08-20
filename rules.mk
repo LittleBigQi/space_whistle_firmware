@@ -29,6 +29,8 @@ BUILDDIRS += $(BUILD_PATH)/$(d)/ipv4ll
 BUILDDIRS += $(BUILD_PATH)/$(d)/mdns-sd
 BUILDDIRS += $(BUILD_PATH)/$(d)/dhcpc
 BUILDDIRS += $(BUILD_PATH)/$(d)/arp
+BUILDDIRS += $(BUILD_PATH)/$(d)/linalg
+BUILDDIRS += $(BUILD_PATH)/$(d)/calibration
 
 ### Local flags: these control how the compiler gets called.
 
@@ -100,6 +102,8 @@ cSRCS_$(d) += mdns-sd/mdns-sd.c
 cSRCS_$(d) += ipv4ll/ipv4ll.c
 cSRCS_$(d) += dhcpc/dhcpc.c
 cSRCS_$(d) += arp/arp.c
+cSRCS_$(d) += linalg/linalg.c
+cSRCS_$(d) += calibration/calibration.c
 cSRCS_$(d) += firmware.c
 
 # cppSRCS_$(d) are the C++ sources we want compiled.  We have our own

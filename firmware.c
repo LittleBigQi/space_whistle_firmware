@@ -58,6 +58,7 @@
 #include <arp.h>
 #include <wiz.h>
 #include <osc.h>
+#include <calibration.h>
 
 static uint8_t adc1_raw_sequence [ADC_DUAL_LENGTH]; // ^corresponding raw ADC channels
 static uint8_t adc2_raw_sequence [ADC_DUAL_LENGTH]; // ^corresponding raw ADC channels
@@ -66,29 +67,17 @@ static uint8_t adc3_raw_sequence [ADC_SING_LENGTH];
 static int16_t adc12_raw[2][ADC_DUAL_LENGTH*2] __attribute__((aligned(4))); // the dma temporary data array.
 static int16_t adc3_raw[2][ADC_SING_LENGTH] __attribute__((aligned(4)));
 
-static uint16_t adc_raw[SENSOR_N];
+static int16_t adc_raw[SENSOR_N];
 static float adc_val0[SENSOR_N];
 static float adc_val1[SENSOR_N];
 
 typedef struct _ADC_Filter ADC_Filter;
-typedef struct _ADC_Norm ADC_Norm;
 typedef enum _ADC_State ADC_State;
 
 struct _ADC_Filter {
 	float Os;
 	float O0, O1;
 	float OO0, OO1;
-};
-
-/*
-	Bn = (B - Bmin) / (Bmax - Bmin)
-	m = 1 / (Bmax - Bmin)
-	Bn = (B - Bmin) * m
-*/
-struct _ADC_Norm {
-	float min;
-	float max;
-	float m;
 };
 
 #define FILT_STIFFNESS 16.f
@@ -103,18 +92,6 @@ static ADC_Filter adc_filt[SENSOR_N] = {
 	[6] = { .Os = 1.f / FILT_STIFFNESS },
 	[7] = { .Os = 1.f / FILT_STIFFNESS },
 	[8] = { .Os = 1.f / FILT_STIFFNESS }
-};
-
-static ADC_Norm adc_norm[SENSOR_N] = {
-	[0] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
-	[1] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
-	[2] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
-	[3] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
-	[4] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
-	[5] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
-	[6] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
-	[7] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff },
-	[8] = { .min = 0.f, .max = 0xfff, .m = 1.f / 0xfff }
 };
 
 enum _ADC_State {
@@ -337,7 +314,9 @@ _out_dump_raw(osc_data_t *buf, int32_t frm, OSC_Timetag now, OSC_Timetag offset)
 	buf_ptr = osc_start_bundle(buf_ptr, offset, &bndl);
 		buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
 			buf_ptr = osc_set_path(buf_ptr, "/dmp");
-			buf_ptr = osc_set_fmt(buf_ptr, "fffffffff");
+			buf_ptr = osc_set_fmt(buf_ptr, "itfffffffff");
+			buf_ptr = osc_set_int32(buf_ptr, frm);
+			buf_ptr = osc_set_timetag(buf_ptr, now);
 			for(i=0; i<SENSOR_N; i++)
 				buf_ptr = osc_set_float(buf_ptr, adc_filt[i].OO1);
 		buf_ptr = osc_end_bundle_item(buf_ptr, itm);
@@ -357,7 +336,9 @@ _out_dump_val(osc_data_t *buf, int32_t frm, OSC_Timetag now, OSC_Timetag offset)
 	buf_ptr = osc_start_bundle(buf_ptr, offset, &bndl);
 		buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
 			buf_ptr = osc_set_path(buf_ptr, "/val");
-			buf_ptr = osc_set_fmt(buf_ptr, "fffffffff");
+			buf_ptr = osc_set_fmt(buf_ptr, "itfffffffff");
+			buf_ptr = osc_set_int32(buf_ptr, frm);
+			buf_ptr = osc_set_timetag(buf_ptr, now);
 			for(i=0; i<SENSOR_N; i++)
 				buf_ptr = osc_set_float(buf_ptr, adc_val1[i]);
 		buf_ptr = osc_end_bundle_item(buf_ptr, itm);
@@ -516,10 +497,12 @@ loop()
 			for(i=0; i<ADC_SING_LENGTH; i++)
 				adc_raw[order3[i]] = adc3_raw[adc_raw_ptr][i];
 
+			if(calibrating)
+				range_calibrate(adc_raw);
+
 			for(i=0; i<SENSOR_N; i++)
 			{
 				ADC_Filter *filt = &adc_filt[i];
-				ADC_Norm *norm = &adc_norm[i];
 
 				// filter signal
 				filt->O1 = adc_raw[i];
@@ -528,7 +511,13 @@ loop()
 				filt->OO0 = filt->OO1;
 
 				// normalize
-				adc_val1[i] = (filt->OO1 - norm->min) * norm->m;
+				adc_val1[i] = (filt->OO1 - range.Bmin[i]) * range.W[i];
+
+				// linearization skip for pressure sensor
+				if(i != SENSOR_N-1)
+					adc_val1[i] = range.C[i][0] * cbrtf(adc_val1[i])
+											+ range.C[i][1] * sqrtf(adc_val1[i])
+											+ range.C[i][2] *       adc_val1[i];
 
 				// update state
 				if(adc_val1[i] > 0.f)
@@ -562,21 +551,21 @@ loop()
 			buf_ptr = BUF_O_OFFSET(buf_o_ptr);
 			buf_ptr = osc_start_bundle(buf_ptr, OSC_IMMEDIATE, &bndl);
 
-				buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
-					buf_ptr = _out_dump_raw(buf_ptr, frm, now, offset);
-				buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+				//buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+				//	buf_ptr = _out_dump_raw(buf_ptr, frm, now, offset);
+				//buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
 				buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
 					buf_ptr = _out_dump_val(buf_ptr, frm, now, offset);
 				buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
-				buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
-					buf_ptr = _out_lossless(buf_ptr, frm, now, offset);
-				buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+				//buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+				//	buf_ptr = _out_lossless(buf_ptr, frm, now, offset);
+				//buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
-				buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
-					buf_ptr = _out_lossy(buf_ptr, frm, now, offset);
-				buf_ptr = osc_end_bundle_item(buf_ptr, itm);
+				//buf_ptr = osc_start_bundle_item(buf_ptr, &itm);
+				//	buf_ptr = _out_lossy(buf_ptr, frm, now, offset);
+				//buf_ptr = osc_end_bundle_item(buf_ptr, itm);
 
 			buf_ptr = osc_end_bundle(buf_ptr, bndl);
 			len = buf_ptr - BUF_O_OFFSET(buf_o_ptr);
@@ -946,6 +935,9 @@ setup()
 	// read MAC from MAC EEPROM or use custom one stored in config
 	if(!config.comm.custom_mac)
 		eeprom_bulk_read(eeprom_24AA025E48, 0xfa, config.comm.mac, 6);
+	
+	// load calibrated sensor ranges from eeprom
+	range_load(0);
 
 	// init DMA, which is used for SPI and ADC
 	dma_init(DMA1);

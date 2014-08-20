@@ -36,6 +36,7 @@
 #include <dhcpc.h>
 #include <mdns-sd.h>
 #include <debug.h>
+#include <calibration.h>
 
 static char string_buf [64];
 const char *success_str = "/success";
@@ -1119,7 +1120,8 @@ static const OSC_Query_Item root_tree [] = {
 	OSC_QUERY_ITEM_NODE("mdns/", "Multicast DNS", mdns_tree),
 
 	// output engines
-	OSC_QUERY_ITEM_NODE("engines/", "Output engines", engines_tree)
+	OSC_QUERY_ITEM_NODE("engines/", "Output engines", engines_tree),
+	OSC_QUERY_ITEM_NODE("calibration/", "Calibration", calibration_tree)
 };
 
 static const OSC_Query_Item root = OSC_QUERY_ITEM_NODE("/", "Root node", root_tree);
