@@ -11,3 +11,28 @@ The device is fit for the future as all communication is network based. Events a
 Finally the device could look like a networked electronic trumpet on stereoids and be the more most expressive wind controller out there, ready to record some fancy sci-fi movie themes.
 
 <http://hackaday.io/project/2011>
+
+## Build instructions
+
+### ARM embedded toolchain
+<https://launchpad.net/gcc-arm-embedded>
+
+	cd $HOME
+	tar xjf gcc-arm-none-eabi-4_8-2014q2-20140609-linux.tar.bz2
+	export PATH="$PATH:$HOME/gcc-arm-none-eabi-4_8-2014q2/bin"
+
+### LeafLabs libmaple F3 port
+<https://github.com/ventosus/libmaple/tree/F3>
+
+	cd $HOME
+	git clone https://github.com/ventosus/libmaple.git
+	cd libmaple
+	git checkout -b F3 origin/F3
+	export LIB_MAPLE_HOME=$HOME/libmaple</code></pre>
+
+### Space Whistle firmware
+<https://github.com/OpenMusicKontrollers/space_whistle_firmware>
+
+	git clone https://github.com/OpenMusicKontrollers/space_whistle_firmware.git
+	cd space_whistle_firmware
+	make
